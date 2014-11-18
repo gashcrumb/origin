@@ -37,7 +37,8 @@ module.exports = function (grunt) {
       },
       js: {
         files: ['<%= yeoman.app %>/scripts/{,*/}*.js'],
-        tasks: ['newer:jshint:all'],
+        //tasks: ['newer:jshint:all'],
+        tasks: ['bower_concat', 'concat:hawtio'],
         options: {
           livereload: '<%= connect.options.livereload %>'
         }
@@ -62,6 +63,19 @@ module.exports = function (grunt) {
           '.tmp/styles/{,*/}*.css',
           '<%= yeoman.app %>/images/{,*/}*.{png,jpg,jpeg,gif,webp,svg}'
         ]
+      },
+      mainCss: {
+        files: ['.tmp/styles/main.css'],
+        tasks: ['bower_concat', 'concat:hawtioCss']
+      },
+      hawtio: {
+        options: {
+          livereload: '<%= connect.options.livereload %>'
+        },
+        files: [
+          'dist/vendor.js',
+          'dist/css/vendor.css'
+        ]
       }
     },
 
@@ -70,7 +84,7 @@ module.exports = function (grunt) {
       options: {
         port: 9000,
         // Change this to '0.0.0.0' to access the server from outside.
-        hostname: 'localhost',
+        hostname: '0.0.0.0',
         livereload: 35729
       },
       livereload: {
@@ -100,6 +114,53 @@ module.exports = function (grunt) {
                 connect.static('./bower_components')
               ),
               connect.static(appConfig.app)
+            ];
+          }
+        }
+      },
+      hawtio: {
+        options: {
+          liveReload: true,
+          middleware: function (connect, options, middlewares) {
+            return [
+              connect.static(appConfig.app),
+              connect.static('dist'),
+              // fake out session discovery
+              function (req, res, next) {
+                if (req.url !== '/user') return next();
+                grunt.log.writeln("session discovery request");
+                res.setHeader('Content-Type', 'application/json');
+                res.end(JSON.stringify("user"));
+              },
+              // fake out plugin discovery
+              function (req, res, next) {
+                if (req.url !== '/plugin') return next();
+                grunt.log.writeln("plugin discovery request");
+                res.setHeader('Content-Type', 'application/json');
+                res.end(JSON.stringify({}));
+              },
+              // fake out session keepalive requests
+              function(req, res, next) {
+                if (req.url !== '/refresh') return next();
+                grunt.log.writeln("session refresh request");
+                res.end();
+              },
+              // fake out jolokia requests
+              function(req, res, next) {
+                if (!grunt.util._.startsWith(req.url, '/jolokia')) return next();
+                grunt.log.writeln("jolokia request: ", req.url);
+                function onData(chunk) {
+                  if (chunk) {
+                    grunt.log.writeln("request body: ", chunk.toString());
+                  }
+                }
+                req.on('data', onData);
+                req.on('end', function(chunk) {
+                  onData(chunk);
+                  res.setHeader('Content-Type', 'application/json');
+                  res.end(JSON.stringify({}));
+                });
+              }
             ];
           }
         }
@@ -143,6 +204,36 @@ module.exports = function (grunt) {
             '!<%= yeoman.dist %>/.git*'
           ]
         }]
+      },
+      'hawtio-java-stuff': {
+        src: [
+          'dist/META-INF',
+          'dist/WEB-INF'
+        ]
+      },
+      'hawtio-cruft': {
+        src: [
+          'dist/bower_components/**/*.*',
+          '!dist/bower_components/bootstrap/docs/assets/css/bootstrap.css',
+          '!dist/bower_components/Font-Awesome/css/font-awesome.css',
+          'dist/lib',
+          'dist/css/*',
+          '!dist/css/vendor.css',
+          '!dist/css/hawtio-base.css',
+          'dist/app/*',
+          '!dist/app/app.js',
+          '!dist/app/core',
+          '!dist/app/ui',
+          '!dist/app/kubernetes',
+          '!dist/app/forms',
+          '!dist/app/datatable',
+          '!dist/app/perspective',
+          '!dist/app/themes',
+          '!dist/app/jmx',
+          '!dist/app/rbac',
+          'dist/test.js',
+          'dist/test.json'
+        ]
       },
       server: '.tmp'
     },
@@ -319,16 +410,54 @@ module.exports = function (grunt) {
       }
     },
 
+    bower_concat: {
+      all: {
+        dest: '.tmp/thirdParty.js',
+        cssDest: '.tmp/thirdParty.css',
+        exclude: [
+          // only for testing
+          'angular-mocks',
+          'angular-scenario',
+          // doesn't load correctly
+          'angular-animate',
+          // requires newer angular
+          'angular-sanitize',
+          // already included
+          'angular',
+          'angular-resource',
+          'angular-bootstrap',
+          'angular-route',
+          'jquery',
+          'uri.js'
+        ]
+      }
+    },
+
+    concat: {
+      options: {
+
+      },
+      hawtio: {
+        src: ['.tmp/thirdParty.js', '<%= yeoman.app %>/scripts/{,*/}*.js'],
+        dest: 'dist/vendor.js'
+      },
+      hawtioDist: {
+        src: ['.tmp/thirdParty.js', '<%= yeoman.app %>/scripts/{,*/}*.js'],
+        dest: '.tmp/vendor.js'
+      },
+      hawtioCss: {
+        src: ['.tmp/thirdParty.css', '.tmp/styles/main.css'],
+        dest: 'dist/css/vendor.css'
+      }
+    },
+
     // ng-annotate tries to make the code safe for minification automatically
     // by using the Angular long form for dependency injection.
     ngAnnotate: {
       dist: {
-        files: [{
-          expand: true,
-          cwd: '.tmp/concat/scripts',
-          src: ['*.js', '!oldieshim.js'],
-          dest: '.tmp/concat/scripts'
-        }]
+        files: {
+          'dist/vendor.js': ['.tmp/vendor.js'] 
+        }
       }
     },
 
@@ -354,7 +483,10 @@ module.exports = function (grunt) {
             'views/{,*/}*.html',
             'images/{,*/}*.{webp}',
             'fonts/*',
-            'styles/fonts/*'
+            'styles/fonts/*',
+            'user',
+            'refresh',
+            'plugin'
           ]
         }, {
           expand: true,
@@ -373,6 +505,10 @@ module.exports = function (grunt) {
         cwd: '<%= yeoman.app %>/styles',
         dest: '.tmp/styles/',
         src: '{,*/}*.css'
+      },
+      hawtio: {
+        src: 'dist/index.html',
+        dest: 'dist/404.html'
       }
     },
 
@@ -385,9 +521,9 @@ module.exports = function (grunt) {
         'compass'
       ],
       dist: [
-        'compass:dist',
-        'imagemin',
-        'svgmin'
+        'compass:dist'
+        //'imagemin',
+        //'svgmin'
       ]
     },
 
@@ -412,21 +548,67 @@ module.exports = function (grunt) {
         dir: 'coverage',
         root: 'test'
       }
-    }    
+    },    
+
+    // Version of hawtio to download
+    hawtioVersion: '1.4.35',
+    hawtioDir: 'dist/',
+
+    // Downloads the hawtio-web customized war file
+    curl: {
+      'hawtio': {
+        src: 'http://repo.maven.apache.org/maven2/io/hawt/hawtio-custom-app/<%= hawtioVersion %>/hawtio-custom-app-<%= hawtioVersion %>.war',
+        dest: '.hawtio.war',
+      }
+    },
+
+    unzip: {
+      'hawtio': {
+        src: '.hawtio.war',
+        dest: '<%= hawtioDir %>'
+      }
+    }
+
   });
 
+  grunt.registerTask('hawtio:prep', ['hawtio:discover', 'unzip:hawtio', 'clean:hawtio-java-stuff', 'clean:hawtio-cruft']);
+
+  grunt.registerTask('hawtio:prepDebug', ['hawtio:discover', 'unzip:hawtio', 'clean:hawtio-java-stuff']);
+
+  grunt.registerTask('hawtio:discover', function() {
+    if (!grunt.file.exists('.hawtio.war')) {
+      grunt.task.run('curl:hawtio');
+    } else {
+      grunt.log.writeln('Hawtio war already downloaded');
+    }
+  });
 
   grunt.registerTask('serve', 'Compile then start a connect web server', function (target) {
     if (target === 'dist') {
       return grunt.task.run(['build', 'connect:dist:keepalive']);
     }
 
-    grunt.task.run([
-      'clean:server',
-      'wiredep',
-      'concurrent:server',
-      'autoprefixer',
-      'connect:livereload',
+    if (target === 'debug') {
+      return grunt.task.run([
+        'clean:dist', 
+        'hawtio:prepDebug', 
+        'compass:dist', 
+        'bower_concat', 
+        'concat:hawtio', 
+        'concat:hawtioCss',
+        'connect:hawtio', 
+        'watch'
+      ]);
+    }
+
+    return grunt.task.run([
+      'clean:dist', 
+      'hawtio:prep', 
+      'compass:dist', 
+      'bower_concat', 
+      'concat:hawtio', 
+      'concat:hawtioCss',
+      'connect:hawtio', 
       'watch'
     ]);
   });
@@ -438,6 +620,9 @@ module.exports = function (grunt) {
 
   // Loads the coverage task which enforces the minimum coverage thresholds
   grunt.loadNpmTasks('grunt-istanbul-coverage');
+
+  // Load the bower concat tasks to concat third-party deps into .js files
+  grunt.loadNpmTasks('grunt-bower-concat');
 
   // karma must run prior to coverage since karma will generate the coverage results
   grunt.registerTask('test', [
@@ -451,19 +636,22 @@ module.exports = function (grunt) {
 
   grunt.registerTask('build', [
     'clean:dist',
-    'wiredep',
-    'useminPrepare',
+    //'wiredep',
+    //'useminPrepare',
+    'hawtio:prep',
     'concurrent:dist',
+    'bower_concat',
     'autoprefixer',
-    'concat',
+    'concat:hawtioDist',
+    'concat:hawtioCss',
     'ngAnnotate',
     'copy:dist',
-    'cdnify',
-    'cssmin',
-    'uglify',
-    'filerev',
-    'usemin',
-    'htmlmin'
+    //'cdnify',
+    //'cssmin',
+    //'uglify',
+    //'filerev',
+    //'usemin',
+    //'htmlmin'
   ]);
 
   grunt.registerTask('default', [
