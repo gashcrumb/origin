@@ -93,6 +93,8 @@ angular.module('openshiftConsole')
   };
 
   DataService.prototype.unsubscribe = function(type, callback) {
+    // TODO something is wrong with this._subscriptions[type].has() in the version of
+    // jquery hawt.io pulls in... was working before.  It is reporting false when it shouldnt be
     if (this._subscriptions[type] && this._subscriptions[type].has()){
       this._subscriptions[type].remove(callback);
       if (!this._subscriptions[type].has()) {
@@ -259,8 +261,7 @@ angular.module('openshiftConsole')
   DataService.prototype._onSocketMessage = function(type, context, event) {
     try {
       var eventData = $.parseJSON(event.data);
-      if (this._subscriptions[type].has()) {
-        // eventData.type will be one of ADDED, MODIFIED, DELETED
+      if (this._subscriptions[type]) {
         this._subscriptions[type].fire(eventData.type, eventData.object);
       }
     }
